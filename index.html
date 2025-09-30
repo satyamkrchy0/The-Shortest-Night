@@ -515,6 +515,10 @@
         });
 
         // --- Background Theme System ---
+        // Themes change automatically as poem lines become visible
+        // Adjust the divisor in checkThemeChange() to change frequency:
+        // - Currently: every 3 lines (for 8-line demo)
+        // - For longer poems: change to Math.floor(visibleCount / 10) for every 10 lines
         let currentTheme = 0;
         const themes = [
             {
