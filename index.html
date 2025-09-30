@@ -340,6 +340,100 @@
         aurora.position.z = -5;
         scene.add(aurora);
 
+        // --- Planetary Elements ---
+        // Sun
+        const sunGeometry = new THREE.SphereGeometry(0.8, 32, 32);
+        const sunMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+                uTime: { value: 0.0 },
+                uColor: { value: new THREE.Color(0xffaa00) }
+            },
+            vertexShader: `
+                varying vec3 vNormal;
+                varying vec3 vPosition;
+                void main() {
+                    vNormal = normalize(normalMatrix * normal);
+                    vPosition = position;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }`,
+            fragmentShader: `
+                uniform float uTime;
+                uniform vec3 uColor;
+                varying vec3 vNormal;
+                varying vec3 vPosition;
+                void main() {
+                    float intensity = pow(0.7 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
+                    vec3 glow = uColor * (1.0 + intensity);
+                    float flicker = 0.9 + 0.1 * sin(uTime * 3.0);
+                    gl_FragColor = vec4(glow * flicker, 1.0);
+                }`,
+            transparent: false
+        });
+        const sun = new THREE.Mesh(sunGeometry, sunMaterial);
+        sun.position.set(8, 6, -8);
+        scene.add(sun);
+
+        // Moon
+        const moonGeometry = new THREE.SphereGeometry(0.6, 32, 32);
+        const moonMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0xccccff,
+            transparent: true,
+            opacity: 0.9
+        });
+        const moon = new THREE.Mesh(moonGeometry, moonMaterial);
+        moon.position.set(-7, 5, -7);
+        scene.add(moon);
+
+        // Add moon craters for realism
+        const craterGeometry = new THREE.SphereGeometry(0.15, 16, 16);
+        const craterMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0x999999,
+            transparent: true,
+            opacity: 0.3
+        });
+        for (let i = 0; i < 5; i++) {
+            const crater = new THREE.Mesh(craterGeometry, craterMaterial);
+            const angle = (i / 5) * Math.PI * 2;
+            crater.position.set(
+                moon.position.x + Math.cos(angle) * 0.3,
+                moon.position.y + Math.sin(angle) * 0.3,
+                moon.position.z + 0.3
+            );
+            scene.add(crater);
+        }
+
+        // Stars (additional fixed stars beyond particles)
+        const starGeometry = new THREE.BufferGeometry();
+        const starVertices = [];
+        const starColors = [];
+        for (let i = 0; i < 200; i++) {
+            const x = (Math.random() - 0.5) * 40;
+            const y = (Math.random() - 0.5) * 40;
+            const z = -10 - Math.random() * 10;
+            starVertices.push(x, y, z);
+            
+            // Vary star colors (white, blue-white, yellow-white)
+            const colorChoice = Math.random();
+            if (colorChoice < 0.33) {
+                starColors.push(1, 1, 1); // White
+            } else if (colorChoice < 0.66) {
+                starColors.push(0.8, 0.9, 1); // Blue-white
+            } else {
+                starColors.push(1, 1, 0.8); // Yellow-white
+            }
+        }
+        starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starVertices, 3));
+        starGeometry.setAttribute('color', new THREE.Float32BufferAttribute(starColors, 3));
+        const starMaterial = new THREE.PointsMaterial({
+            size: 0.08,
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.9,
+            sizeAttenuation: true
+        });
+        const stars = new THREE.Points(starGeometry, starMaterial);
+        scene.add(stars);
+
         // --- Interactive Particles ---
         const particleCount = 5000;
         const positions = new Float32Array(particleCount * 3);
@@ -420,12 +514,123 @@
             });
         });
 
+        // --- Background Theme System ---
+        // Themes change automatically as poem lines become visible
+        // Adjust the divisor in checkThemeChange() to change frequency:
+        // - Currently: every 3 lines (for 8-line demo)
+        // - For longer poems: change to Math.floor(visibleCount / 10) for every 10 lines
+        let currentTheme = 0;
+        const themes = [
+            {
+                name: 'twilight',
+                auroraColor1: 0x00ffaa,
+                auroraColor2: 0xff00ff,
+                particleColor: 0xaaaaff,
+                backgroundColor: 0x010108,
+                sunVisible: true,
+                moonVisible: false
+            },
+            {
+                name: 'midnight',
+                auroraColor1: 0x0066ff,
+                auroraColor2: 0xff0066,
+                particleColor: 0xffaaff,
+                backgroundColor: 0x000005,
+                sunVisible: false,
+                moonVisible: true
+            },
+            {
+                name: 'dawn',
+                auroraColor1: 0xff8800,
+                auroraColor2: 0xffcc00,
+                particleColor: 0xffddaa,
+                backgroundColor: 0x0a0510,
+                sunVisible: true,
+                moonVisible: true
+            }
+        ];
+
+        function applyTheme(themeIndex, smooth = true) {
+            const theme = themes[themeIndex % themes.length];
+            
+            if (smooth) {
+                // Smooth color transitions
+                const currentColor1 = auroraMaterial.uniforms.uColor1.value;
+                const currentColor2 = auroraMaterial.uniforms.uColor2.value;
+                const targetColor1 = new THREE.Color(theme.auroraColor1);
+                const targetColor2 = new THREE.Color(theme.auroraColor2);
+                
+                let progress = 0;
+                const transitionDuration = 2000; // 2 seconds
+                const startTime = Date.now();
+                
+                function transition() {
+                    const elapsed = Date.now() - startTime;
+                    progress = Math.min(elapsed / transitionDuration, 1);
+                    
+                    auroraMaterial.uniforms.uColor1.value.lerpColors(currentColor1, targetColor1, progress);
+                    auroraMaterial.uniforms.uColor2.value.lerpColors(currentColor2, targetColor2, progress);
+                    particleMaterial.color.lerp(new THREE.Color(theme.particleColor), progress * 0.1);
+                    
+                    if (progress < 1) {
+                        requestAnimationFrame(transition);
+                    }
+                }
+                transition();
+            } else {
+                auroraMaterial.uniforms.uColor1.value.set(theme.auroraColor1);
+                auroraMaterial.uniforms.uColor2.value.set(theme.auroraColor2);
+                particleMaterial.color.set(theme.particleColor);
+            }
+            
+            // Toggle planetary elements
+            sun.visible = theme.sunVisible;
+            moon.visible = theme.moonVisible;
+            renderer.setClearColor(theme.backgroundColor, 1);
+        }
+
+        // Apply initial theme
+        applyTheme(0, false);
+
+        // Theme change based on scroll position or poem progression
+        // For this implementation, we'll change theme based on which poem lines are visible
+        let lastVisibleLineIndex = 0;
+        
+        function checkThemeChange() {
+            const poemLines = document.querySelectorAll('.poem-line.visible');
+            const visibleCount = poemLines.length;
+            
+            // Change theme every 10 lines (or for demo purposes, every 3 lines since we have 8)
+            const newThemeIndex = Math.floor(visibleCount / 3);
+            
+            if (newThemeIndex !== currentTheme && newThemeIndex < themes.length) {
+                currentTheme = newThemeIndex;
+                applyTheme(currentTheme, true);
+            }
+        }
+
+        // Check theme periodically
+        setInterval(checkThemeChange, 1000);
+
         function animate() {
             requestAnimationFrame(animate);
             const delta = clock.getDelta();
             const elapsedTime = clock.getElapsedTime();
 
             auroraMaterial.uniforms.uTime.value = elapsedTime;
+            sunMaterial.uniforms.uTime.value = elapsedTime;
+
+            // Animate planetary elements
+            sun.rotation.y += 0.001;
+            moon.rotation.y += 0.002;
+            
+            // Twinkle stars
+            const starPositions = stars.geometry.attributes.position.array;
+            for (let i = 0; i < starPositions.length; i += 3) {
+                const twinkle = Math.sin(elapsedTime * 2 + i) * 0.02;
+                starPositions[i + 2] = -10 - (i / 3) % 10 + twinkle;
+            }
+            stars.geometry.attributes.position.needsUpdate = true;
 
             // Mouse in world-ish space at z≈5
             unprojectedMouse.set(mouse.x, mouse.y, 0.5).unproject(camera);
