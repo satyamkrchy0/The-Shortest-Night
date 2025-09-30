@@ -493,4 +493,69 @@
         animate();
     </script>
 </body>
+
 </html>
+<script>
+    // --- Autoplay init (add this after your existing audio code setup) ---
+    let audioInitialized = false;
+
+    async function initAudio() {
+        if (audioInitialized) return;
+        audioInitialized = true;
+        try {
+            await Tone.start();
+        } catch (e) {
+            // Some browsers may still block, fallback below will handle it
+            console.warn('Tone.start() was blocked or failed:', e);
+        }
+        // Start the transport if not already started
+        if (Tone.Transport.state !== 'started') {
+            // Slight scheduling offset to avoid race conditions
+            Tone.Transport.start('+0.05');
+        }
+        // Reflect "sound on" in the UI
+        const onIcon = document.getElementById('sound-on-icon');
+        const offIcon = document.getElementById('sound-off-icon');
+        if (onIcon && offIcon) {
+            onIcon.style.display = 'block';
+            offIcon.style.display = 'none';
+        }
+    }
+
+    function enableAutoplayFallback() {
+        // Start audio on the first meaningful user interaction
+        const once = (type) => {
+            const handler = () => {
+                initAudio();
+                cleanup();
+            };
+            window.addEventListener(type, handler, { once: true, passive: true });
+            return () => window.removeEventListener(type, handler);
+        };
+
+        const cleanups = [
+            once('pointerdown'),
+            once('touchstart'),
+            once('keydown'),
+        ];
+        function cleanup() {
+            cleanups.forEach(fn => fn && fn());
+        }
+    }
+
+    // Try to start immediately when the page loads
+    window.addEventListener('load', async () => {
+        await initAudio();
+        // If context still isn't running, attach fallback listeners
+        if (Tone.context.state !== 'running') {
+            enableAutoplayFallback();
+        }
+    });
+
+    // Also try when the tab becomes visible (covers cases where load happens in background)
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && Tone.context.state !== 'running') {
+            initAudio();
+        }
+    });
+</script>
